@@ -4,6 +4,7 @@ import pandas as pd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import os
 
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 黑体
@@ -42,9 +43,21 @@ class ScoreVisualizer(tk.Tk):
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self.canvas.get_tk_widget().configure(bg="#f8f8f8")
 
+        self.auto_load_csv();
 
         # self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         # self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def auto_load_csv(self): #尝试自动搜寻并加载 data.csv
+        default_path = "data.csv"
+        if os.path.exists(default_path):
+            try:
+                self.df = pd.read_csv(default_path, parse_dates=["exam"])
+                self.plot_subjects()
+            except Exception as e:
+                messagebox.showinfo("提示", f"读取 data.csv 失败，请手动导入。\n错误：{e}")
+        else:
+            messagebox.showinfo("提示", "没有搜寻到成绩信息，请手动导入。")
 
     def load_csv(self):
         path = filedialog.askopenfilename(filetypes=[("CSV文件","*.csv")])
@@ -97,10 +110,6 @@ class ScoreVisualizer(tk.Tk):
         # 清理、绘制各科成绩
         self.clear_axes()
         score_pivot, total, rank = self.prepare_data()
-
-        for subj in score_pivot.columns:
-            self.ax.plot(score_pivot.index, score_pivot[subj],
-                        marker='o', label=subj, linewidth=2)
             
         # 添加具体数字注释    
         for subj in score_pivot.columns:
