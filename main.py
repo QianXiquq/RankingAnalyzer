@@ -172,7 +172,7 @@ class ScoreVisualizer(tk.Tk):
 
         self.ax.set_title("各科分数趋势", fontsize=22)
         self.ax.set_ylabel("分数", fontsize=20)
-        self.ax.legend()
+        self.ax.legend(fontsize=18, loc='best', frameon=True, borderaxespad=1.5)
         self.format_axis()
         self.canvas.draw()
 
