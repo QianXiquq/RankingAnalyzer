@@ -24,42 +24,66 @@ class ScoreVisualizer(tk.Tk):
         btn_frame = tk.Frame(self)
         btn_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
         # btn_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        tk.Button(btn_frame, text="导入 CSV", command=self.load_csv, width=15, height=2, font=("SimHei", 14)).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="导出 CSV", command=self.save_csv, width=15, height=2, font=("SimHei", 14)).pack(side=tk.LEFT, padx=5)   
+        tk.Button(btn_frame, text="导入 CSV", command=self.load_csv, width=15, height=2, font=("SimHei", 14)
+            ).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="导出 CSV", command=self.save_csv, width=15, height=2, font=("SimHei", 14)
+            ).pack(side=tk.LEFT, padx=5)   
         # tk.Button(btn_frame, text="绘制图表", command=self.plot, width=15, height=2).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="科目趋势", command=self.plot_subjects, width=15, height=2, font=("SimHei", 14)).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="总分趋势", command=self.plot_total, width=15, height=2, font=("SimHei", 14)).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="排名趋势", command=self.plot_rank, width=15, height=2, font=("SimHei", 14)).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="科目趋势", command=self.plot_subjects, width=15, height=2, font=("SimHei", 14)
+            ).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="总分趋势", command=self.plot_total, width=15, height=2, font=("SimHei", 14)
+            ).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="排名趋势", command=self.plot_rank, width=15, height=2, font=("SimHei", 14)
+            ).pack(side=tk.LEFT, padx=5)
 
-        # 创建主区域：左右布局
+        # 创建主区域：左右布局（使用 grid 控制宽度比例）
         main_frame = tk.Frame(self, bg="#f8f8f8")
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
+        # 设置列权重：左侧更宽，右侧窄
+        main_frame.columnconfigure(0, weight=6)  # 左侧图表区域占 4 份
+        main_frame.columnconfigure(1, weight=1)  # 右侧备注区域占 1 份
+        main_frame.rowconfigure(0, weight=1)
+
         # 左侧图表区域
         chart_frame = tk.Frame(main_frame, bg="#ffffff", bd=2, relief="groove")
-        chart_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        chart_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=0)
+        chart_frame.grid_propagate(False) 
+        chart_frame.columnconfigure(0, weight=1) 
+        chart_frame.rowconfigure(0, weight=1)  
+
 
         self.fig, self.ax = plt.subplots(figsize=(8, 6))
         self.fig.patch.set_facecolor("#f8f8f8")
         self.ax.set_facecolor("#ffffff")
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")  # 改为grid布局
         self.canvas.get_tk_widget().configure(bg="#f8f8f8")
 
         # 右侧备注区域
-        side_frame = tk.Frame(main_frame, width=0, bg="#f8f8f8")
-        side_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        side_frame = tk.Frame(main_frame, bg="#f8f8f8")
+        side_frame.grid(row=0, column=1, sticky="nsew")
+        side_frame.grid_propagate(False)  # 禁止自动调整大小
+        side_frame.columnconfigure(0, weight=1)  # 让内容填满整个备注区域
+        side_frame.rowconfigure(1, weight=1)     # 让文本框可扩展
 
-        tk.Label(side_frame, text="备注", font=('SimHei', 16, 'bold'), bg="#f8f8f8").pack(pady=(20, 5))
-        self.notes_text = tk.Text(side_frame, height=25, font=('SimHei', 13), wrap=tk.WORD, state='disabled')
-        self.notes_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # 备注标签（放在第0行）
+        tk.Label(side_frame, text="备注", font=('SimHei', 20, 'bold'), 
+                 bg="#f8f8f8").grid(row=0, column=0, pady=(20, 5), sticky="w")  # 左对齐
 
-        # 备注的保存和修改按钮
+        # 备注文本框（放在第1行，可扩展）
+        self.notes_text = tk.Text(side_frame, height=25, font=('SimHei', 18), 
+                wrap=tk.WORD, state='disabled')
+        self.notes_text.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+
+        # 按钮框架（放在第2行，底部固定高度）
         button_frame = tk.Frame(side_frame, bg="#f8f8f8")
-        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)  # 这里确保按钮在备注框下方
-        tk.Button(button_frame, text="编辑备注", font=('SimHei', 14), command=self.edit_notes).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="保存备注", font=('SimHei', 14), command=self.save_notes).pack(side=tk.LEFT, padx=5)
+        button_frame.grid(row=2, column=0, sticky="ew", pady=5)  # 水平填充
+        tk.Button(button_frame, text="编辑备注", font=('SimHei', 16), command=self.edit_notes
+            ).pack(side=tk.LEFT, padx=5)  # 按钮仍可用pack，因为它们在button_frame内部
+        tk.Button(button_frame, text="保存备注", font=('SimHei', 16), command=self.save_notes
+            ).pack(side=tk.LEFT, padx=5)
 
         # 加载备注
         self.notes_editing = False  # 是否正在编辑备注
