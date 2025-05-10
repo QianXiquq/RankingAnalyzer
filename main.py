@@ -16,6 +16,7 @@ class ScoreVisualizer(tk.Tk):
         # self.geometry("1080x1080")
         self.state('zoomed')
         self.configure(bg="#f8f8f8")  # 设置柔和背景色
+
         # 数据容器
         self.df = pd.DataFrame(columns=["exam","subject","score","rank"])
 
@@ -30,23 +31,42 @@ class ScoreVisualizer(tk.Tk):
         tk.Button(btn_frame, text="总分趋势", command=self.plot_total, width=15, height=2, font=("SimHei", 14)).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="排名趋势", command=self.plot_rank, width=15, height=2, font=("SimHei", 14)).pack(side=tk.LEFT, padx=5)
 
-        # Matplotlib 图表区
+        # 创建主区域：左右布局
+        main_frame = tk.Frame(self, bg="#f8f8f8")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        # 左侧图表区域
+        chart_frame = tk.Frame(main_frame, bg="#ffffff", bd=2, relief="groove")
+        chart_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         self.fig, self.ax = plt.subplots(figsize=(8, 6))
-        # self.fig, (self.ax1, self.ax2) = plt.subplots(2,1, figsize=(6,6))
         self.fig.patch.set_facecolor("#f8f8f8")
         self.ax.set_facecolor("#ffffff")
 
-        # 窗口美化
-        canvas_frame = tk.Frame(self, bg="#ffffff", bd=2, relief="groove")
-        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=canvas_frame)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self.canvas.get_tk_widget().configure(bg="#f8f8f8")
 
-        self.auto_load_csv();
+        # 右侧备注区域
+        side_frame = tk.Frame(main_frame, width=0, bg="#f8f8f8")
+        side_frame.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # self.canvas = FigureCanvasTkAgg(self.fig, master=self)
-        # self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        tk.Label(side_frame, text="备注", font=('SimHei', 16, 'bold'), bg="#f8f8f8").pack(pady=(20, 5))
+        self.notes_text = tk.Text(side_frame, height=25, font=('SimHei', 13), wrap=tk.WORD, state='disabled')
+        self.notes_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # 备注的保存和修改按钮
+        button_frame = tk.Frame(side_frame, bg="#f8f8f8")
+        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)  # 这里确保按钮在备注框下方
+        tk.Button(button_frame, text="编辑备注", font=('SimHei', 14), command=self.edit_notes).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="保存备注", font=('SimHei', 14), command=self.save_notes).pack(side=tk.LEFT, padx=5)
+
+        # 加载备注
+        self.notes_editing = False  # 是否正在编辑备注
+        self.load_notes()
+
+        # 自动加载 CSV
+        self.auto_load_csv()
 
     def auto_load_csv(self): #尝试自动搜寻并加载 data.csv
         default_path = "data.csv"
@@ -181,6 +201,37 @@ class ScoreVisualizer(tk.Tk):
         self.format_axis()
         self.canvas.draw()
 
+
+    def edit_notes(self):
+        if not self.notes_editing:
+            self.notes_text['state'] = 'normal'
+            self.notes_editing = True
+        else:
+            # 保存文本并设为只读
+            self.save_notes()
+            self.notes_text['state'] = 'disabled'
+            self.notes_editing = False
+
+    def load_notes(self):
+        try:
+            with open("note.txt", "r", encoding="utf-8") as f:
+                content = f.read()
+            self.notes_text.config(state='normal')  # 先解锁以插入内容
+            self.notes_text.delete("1.0", tk.END)
+            self.notes_text.insert(tk.END, content)
+            self.notes_text.config(state='disabled')  # 再设回只读
+        except FileNotFoundError:
+            self.notes_text.config(state='normal')
+            self.notes_text.insert(tk.END, "暂无备注")
+            self.notes_text.config(state='disabled')
+
+    def save_notes(self):
+        note_content = self.notes_text.get("1.0", tk.END).strip()
+        with open("note.txt", "w", encoding="utf-8") as f:
+            f.write(note_content)
+        messagebox.showinfo("提示", "备注保存成功")
+        self.notes_editing = False
+        self.notes_text['state'] = 'disabled'
 
 if __name__ == "__main__":
     app = ScoreVisualizer()
