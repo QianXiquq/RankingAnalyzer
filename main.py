@@ -14,7 +14,14 @@ class ScoreVisualizer(tk.Tk):
         super().__init__()
         self.title("RankingAnalyzer")
         # self.geometry("1080x1080")
-        self.state('zoomed')
+        # self.state('zoomed')
+        try:
+            self.state('zoomed') # Windows 下的最大化
+        except tk.TclError:
+            try:
+                self.attributes('-zoomed', True) # Linux 下的最大化
+            except tk.TclError:
+                pass
         self.configure(bg="#f8f8f8")  # 设置柔和背景色
 
         # 数据容器
