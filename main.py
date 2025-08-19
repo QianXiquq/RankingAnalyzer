@@ -5,9 +5,10 @@ os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r"C:/Users/浅曦/AppData/Local/Prog
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QFileDialog, QMessageBox, QTextEdit, QLabel, QFrame
+    QPushButton, QFileDialog, QMessageBox, QTextEdit, QLabel, QFrame, QSplitter
 )
 from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt
 import pandas as pd
 import matplotlib
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -79,11 +80,13 @@ class ScoreVisualizer(QMainWindow):
         self.ax.set_facecolor("#ffffff")
         self.canvas = FigureCanvas(self.fig)
 
-        left_layout = QVBoxLayout()
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
         left_layout.addWidget(self.canvas)
 
         # 右侧备注
-        right_layout = QVBoxLayout()
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
         self.notes_label = QLabel("备注")
         self.notes_label.setFont(QFont("Microsoft YaHei", self.base_font_sizes['title']))
         right_layout.addWidget(self.notes_label)
@@ -104,55 +107,41 @@ class ScoreVisualizer(QMainWindow):
         notes_buttons.addWidget(self.btn_save)
         right_layout.addLayout(notes_buttons)
 
+        # 创建分割器
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.addWidget(left_widget)
+        self.splitter.addWidget(right_widget)
+        self.splitter.setStretchFactor(0, 6)  # 左侧图表区域初始占比6/7
+        self.splitter.setStretchFactor(1, 1)  # 右侧备注区域初始占比1/7
+        self.splitter.setSizes([700, 300])  # 初始大小比例
+        self.splitter.setHandleWidth(5)  # 设置分割线宽度
+        self.splitter.splitterMoved.connect(self.on_splitter_moved)
+
         # 布局
-        main_layout = QHBoxLayout()
-        left_frame = QFrame()
-        left_frame.setLayout(left_layout)
-        left_frame.setFrameShape(QFrame.StyledPanel)
-        right_frame = QFrame()
-        right_frame.setLayout(right_layout)
-        right_frame.setFrameShape(QFrame.StyledPanel)
-        right_frame.setFixedWidth(360)
-
-        main_layout.addWidget(left_frame, 6)
-        main_layout.addWidget(right_frame, 1)
-
         outer = QVBoxLayout(central)
         outer.addLayout(top_buttons)
-        outer.addLayout(main_layout)
+        outer.addWidget(self.splitter)
 
         self.load_notes()
         QtCore.QTimer.singleShot(50, self.auto_load_csv)
 
+    def on_splitter_moved(self, pos, index):
+        """当分割器移动时更新图表"""
+        self.canvas.draw()
+
     def calculate_scale_factor(self, width, height):
-        """计算缩放因子，考虑DPI和窗口大小"""
+        """计算缩放因子，移除所有上界限制，完全自适应"""
         # 计算基于窗口大小的缩放
         size_scale = min(width / self.base_w, height / self.base_h)
         
         # 计算基于DPI的缩放
         dpi_scale = self.screen_dpi / self.base_dpi
         
-        # 组合缩放因子 - 使用更平缓的缩放曲线
-        # 基础缩放因子
-        base_scale = min(size_scale, 1.5)  # 限制最大缩放为1.5倍
+        # 组合缩放因子 - 移除所有上界限制
+        total_scale = size_scale * dpi_scale
         
-        # 对更大的缩放使用更平缓的曲线
-        if size_scale > 1.2:
-            adjusted_scale = 1.0 + (size_scale - 1.0) * 0.4  # 更小的缩放比例
-        else:
-            adjusted_scale = size_scale
-            
-        # DPI调整 - 对高DPI屏幕使用更小的缩放
-        if dpi_scale > 1.2:
-            dpi_adjust = 1.0 + (dpi_scale - 1.0) * 0.5  # 进一步减小高DPI缩放
-        else:
-            dpi_adjust = dpi_scale
-            
-        # 最终缩放因子
-        total_scale = min(adjusted_scale * dpi_adjust, 1.5)  # 绝对上限设为1.5
-        
-        # 允许更小的缩放因子 - 最小设为0.6（原为0.8）
-        return max(total_scale, 0.6)  # 允许更小的字体
+        # 移除最小限制，但保留一个合理的最小值0.4以防止字体过小
+        return max(total_scale, 0.4)
 
     def resizeEvent(self, event):
         try:
@@ -161,23 +150,15 @@ class ScoreVisualizer(QMainWindow):
             total_scale = self.calculate_scale_factor(w, h)
             print(f"Window size: {w}x{h}, Scale factor: {total_scale:.2f}")
 
-            # 计算字体大小 - 降低最小字体限制
-            # 按钮字体：最小6pt（原7pt），最大14pt
-            btn_size = max(6, min(14, int(self.base_font_sizes['btn'] * total_scale)))
-            # 标题字体：最小7pt（原8pt），最大16pt
-            title_size = max(7, min(16, int(self.base_font_sizes['title'] * total_scale)))
-            # Y轴标签字体：最小6pt（原7pt），最大14pt
-            ylabel_size = max(6, min(14, int(self.base_font_sizes['ylabel'] * total_scale)))
-            # 备注字体：最小7pt（原7pt），最大14pt
-            notes_size = max(7, min(14, int(self.base_font_sizes['notes'] * total_scale)))
-            # 备注按钮字体：最小6pt（原7pt），最大14pt
-            notes_btn_size = max(6, min(14, int(self.base_font_sizes['notes_btn'] * total_scale)))
-            # 图例字体：最小6pt（原7pt），最大14pt
-            legend_size = max(6, min(14, int(self.base_font_sizes['legend'] * total_scale)))
-            # 刻度字体：最小6pt（原7pt），最大14pt
-            ticks_size = max(6, min(14, int(self.base_font_sizes['ticks'] * total_scale)))
-            # 注解字体：最小6pt（原7pt），最大14pt
-            annot_size = max(6, min(14, int(self.base_font_sizes['annot'] * total_scale)))
+            # 计算字体大小 - 移除所有上界限制
+            btn_size = int(self.base_font_sizes['btn'] * total_scale)
+            title_size = int(self.base_font_sizes['title'] * total_scale)
+            ylabel_size = int(self.base_font_sizes['ylabel'] * total_scale)
+            notes_size = int(self.base_font_sizes['notes'] * total_scale)
+            notes_btn_size = int(self.base_font_sizes['notes_btn'] * total_scale)
+            legend_size = int(self.base_font_sizes['legend'] * total_scale)
+            ticks_size = int(self.base_font_sizes['ticks'] * total_scale)
+            annot_size = int(self.base_font_sizes['annot'] * total_scale)
 
             # 按钮
             for b in (self.btn_import, self.btn_export, self.btn_subjects, self.btn_total, self.btn_rank):
