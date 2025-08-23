@@ -10,7 +10,6 @@
 - 依赖库：
   - PyQt5
   - pandas
-  - matplotlib
   - numpy
 
 ## 使用说明
