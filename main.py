@@ -1,56 +1,163 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Pure PyQt5 + QtCharts implementation of RankingAnalyzer.
+Exam-time labels on the x-axis fixed (use QCategoryAxis and avoid createDefaultAxes()).
+Requires: PyQt5, PyQtChart (QtCharts), pandas, numpy
+pip install PyQt5 PyQtChart pandas numpy
+"""
+
 import sys
 import os
-os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = r"C:/Users/浅曦/AppData/Local/Programs/Python/Python311/Lib/site-packages/PyQt5/Qt5/plugins/platforms"
-
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QFileDialog, QMessageBox, QTextEdit, QLabel, QFrame, QSplitter
+    QPushButton, QFileDialog, QMessageBox, QTextEdit, QLabel, QSplitter
 )
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import Qt
-import pandas as pd
-import matplotlib
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import numpy as np
+from PyQt5.QtCore import Qt, QPointF
 
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']  # 微软雅黑
+# QtCharts imports (ensure PyQtChart / PyQt5.QtChart is installed)
+from PyQt5.QtChart import QChart, QChartView, QLineSeries, QValueAxis, QCategoryAxis
+
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+# ---------------- UI / Behavior Constants ----------------
+DEFAULT_FONT = "Microsoft YaHei"
+BASE_FONT_SIZES = {
+    'btn': 9,
+    'title': 11,
+    'notes': 10,
+    'notes_btn': 9,
+    'legend': 9,
+    'ticks': 9,
+    'annot': 9
+}
+
+
+class ChartWidget(QChartView):
+    """Wrapper around QChartView to simplify plotting series with category x-axis."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.chart = QChart()
+        self.setChart(self.chart)
+        self.chart.setBackgroundBrush(Qt.white)
+        self.chart.legend().setVisible(True)
+        self.chart.setAnimationOptions(QChart.AllAnimations)
+        self.series_list = []
+
+    def clear(self):
+        for s in list(self.series_list):
+            try:
+                self.chart.removeSeries(s)
+            except Exception:
+                pass
+        self.series_list.clear()
+        # remove axes
+        for ax in list(self.chart.axes()):
+            try:
+                self.chart.removeAxis(ax)
+            except Exception:
+                pass
+
+    def plot_lines(self, x_labels, series_dict, title=""):
+        """
+        x_labels: list[str] labels for x positions [0..N-1]
+        series_dict: { "label": [y0, y1, ...], ...}
+        """
+        self.clear()
+        n = len(x_labels)
+        self.chart.setTitle(title)
+
+        # Build X axis as category axis (map index -> label)
+        axis_x = QCategoryAxis()
+        # Place labels at their value positions
+        axis_x.setLabelsPosition(QCategoryAxis.AxisLabelsPositionOnValue)
+        # Add labels for each index
+        for i, lab in enumerate(x_labels):
+            # Append label at the numeric position i
+            axis_x.append(lab, float(i))
+        # Set the numeric range to cover all indices
+        if n > 0:
+            axis_x.setRange(0.0, float(max(0, n - 1)))
+        axis_x.setTitleText("考试")
+
+        # Build Y axis (value)
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("%.0f")
+        axis_y.setTitleText("分数 / 值")
+
+        # Add series
+        y_min, y_max = None, None
+        for name, ys in series_dict.items():
+            series = QLineSeries()
+            series.setName(str(name))
+            # add points (x=index, y=value)
+            for i, v in enumerate(ys):
+                # If value is NaN or None, skip point
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    continue
+                try:
+                    series.append(QPointF(float(i), float(v)))
+                except Exception:
+                    # skip bad values
+                    continue
+                if y_min is None or v < y_min:
+                    y_min = v
+                if y_max is None or v > y_max:
+                    y_max = v
+            self.chart.addSeries(series)
+            self.series_list.append(series)
+
+        # Attach axes (must attach after adding series)
+        self.chart.addAxis(axis_x, Qt.AlignBottom)
+        self.chart.addAxis(axis_y, Qt.AlignLeft)
+        for s in self.series_list:
+            s.attachAxis(axis_x)
+            s.attachAxis(axis_y)
+
+        # Set Y axis range with small padding
+        if y_min is None:
+            y_min, y_max = 0, 10
+        span = max(1.0, (y_max - y_min) * 0.1) if (y_max is not None and y_min is not None) else 1.0
+        axis_y.setRange(y_min - span, y_max + span)
+
+        # Legend font
+        font = self.chart.legend().font()
+        font.setPointSize(BASE_FONT_SIZES['legend'])
+        self.chart.legend().setFont(font)
+
+        # IMPORTANT: DO NOT call createDefaultAxes() here — it will override our custom axes
+        # If you want label rotation and your Qt version supports it, you can call:
+        # axis_x.setLabelsAngle(45)  # Qt >= 5.11 may support this
+
+        self.update()
 
 
 class ScoreVisualizer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("RankingAnalyzer")
+        self.setWindowTitle("RankingAnalyzer ")
         self.setMinimumSize(1000, 700)
-        self.base_w = 1000
-        self.base_h = 700
-        self.base_font_sizes = {
-            'btn': 9,
-            'title': 11,
-            'ylabel': 10,
-            'notes': 10,
-            'notes_btn': 9,
-            'legend': 9,
-            'ticks': 9,
-            'annot': 9
-        }
-        
-        # 获取屏幕DPI信息
-        screen = QApplication.primaryScreen()
-        self.screen_dpi = screen.logicalDotsPerInch()
-        self.base_dpi = 96  # 基准DPI (1080p屏幕)
-        print(f"Screen DPI: {self.screen_dpi}")
 
-        self.df = pd.DataFrame(columns=["exam", "subject", "score", "rank"])
+        # Screen DPI (best-effort)
+        screen = QApplication.primaryScreen()
+        try:
+            self.screen_dpi = screen.logicalDotsPerInch()
+        except Exception:
+            self.screen_dpi = 96.0
+        print("Screen DPI:", self.screen_dpi)
+
+        self.df = pd.DataFrame(columns=["exam", "subject", "score", "total_rank"])
         self.notes_editing = False
 
         central = QWidget()
         self.setCentralWidget(central)
 
-        # 顶部按钮栏
+        # Top buttons
         top_buttons = QHBoxLayout()
         self.btn_import = QPushButton("导入 CSV")
         self.btn_export = QPushButton("导出 CSV")
@@ -59,7 +166,7 @@ class ScoreVisualizer(QMainWindow):
         self.btn_rank = QPushButton("排名趋势")
 
         for b in (self.btn_import, self.btn_export, self.btn_subjects, self.btn_total, self.btn_rank):
-            b.setFont(QFont("Microsoft YaHei", self.base_font_sizes['btn']))
+            b.setFont(QFont(DEFAULT_FONT, BASE_FONT_SIZES['btn']))
 
         self.btn_import.clicked.connect(self.load_csv)
         self.btn_export.clicked.connect(self.save_csv)
@@ -74,302 +181,174 @@ class ScoreVisualizer(QMainWindow):
         top_buttons.addWidget(self.btn_rank)
         top_buttons.addStretch()
 
-        # 左侧图表
-        self.fig, self.ax = plt.subplots(figsize=(8, 6))
-        self.fig.patch.set_facecolor("#f8f8f8")
-        self.ax.set_facecolor("#ffffff")
-        self.canvas = FigureCanvas(self.fig)
-
+        # Chart (left)
+        self.chartview = ChartWidget()
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
-        left_layout.addWidget(self.canvas)
+        left_layout.addWidget(self.chartview)
 
-        # 右侧备注
+        # Notes (right)
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         self.notes_label = QLabel("备注")
-        self.notes_label.setFont(QFont("Microsoft YaHei", self.base_font_sizes['title']))
+        self.notes_label.setFont(QFont(DEFAULT_FONT, BASE_FONT_SIZES['title']))
         right_layout.addWidget(self.notes_label)
 
         self.notes_text = QTextEdit()
         self.notes_text.setReadOnly(True)
-        self.notes_text.setFont(QFont("Microsoft YaHei", self.base_font_sizes['notes']))
+        self.notes_text.setFont(QFont(DEFAULT_FONT, BASE_FONT_SIZES['notes']))
         right_layout.addWidget(self.notes_text)
 
         notes_buttons = QHBoxLayout()
         self.btn_edit = QPushButton("编辑备注")
         self.btn_save = QPushButton("保存备注")
-        self.btn_edit.setFont(QFont("Microsoft YaHei", self.base_font_sizes['notes_btn']))
-        self.btn_save.setFont(QFont("Microsoft YaHei", self.base_font_sizes['notes_btn']))
+        self.btn_edit.setFont(QFont(DEFAULT_FONT, BASE_FONT_SIZES['notes_btn']))
+        self.btn_save.setFont(QFont(DEFAULT_FONT, BASE_FONT_SIZES['notes_btn']))
         self.btn_edit.clicked.connect(self.edit_notes)
         self.btn_save.clicked.connect(self.save_notes)
         notes_buttons.addWidget(self.btn_edit)
         notes_buttons.addWidget(self.btn_save)
         right_layout.addLayout(notes_buttons)
 
-        # 创建分割器
+        # Splitter
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(left_widget)
         self.splitter.addWidget(right_widget)
-        self.splitter.setStretchFactor(0, 6)  # 左侧图表区域初始占比6/7
-        self.splitter.setStretchFactor(1, 1)  # 右侧备注区域初始占比1/7
-        self.splitter.setSizes([700, 300])  # 初始大小比例
-        self.splitter.setHandleWidth(5)  # 设置分割线宽度
-        self.splitter.splitterMoved.connect(self.on_splitter_moved)
+        self.splitter.setStretchFactor(0, 6)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([800, 300])
+        self.splitter.splitterMoved.connect(lambda pos, idx: self.chartview.update())
 
-        # 布局
+        # Outer layout
         outer = QVBoxLayout(central)
         outer.addLayout(top_buttons)
         outer.addWidget(self.splitter)
 
+        # Load notes and optionally auto-load data.csv
         self.load_notes()
         QtCore.QTimer.singleShot(50, self.auto_load_csv)
-
-    def on_splitter_moved(self, pos, index):
-        """当分割器移动时更新图表"""
-        self.canvas.draw()
-
-    def calculate_scale_factor(self, width, height):
-        """计算缩放因子，移除所有上界限制，完全自适应"""
-        # 计算基于窗口大小的缩放
-        size_scale = min(width / self.base_w, height / self.base_h)
-        
-        # 计算基于DPI的缩放
-        dpi_scale = self.screen_dpi / self.base_dpi
-        
-        # 组合缩放因子 - 移除所有上界限制
-        total_scale = size_scale * dpi_scale
-        
-        # 移除最小限制，但保留一个合理的最小值0.4以防止字体过小
-        return max(total_scale, 0.4)
-
-    def resizeEvent(self, event):
-        try:
-            w = self.width()
-            h = self.height()
-            total_scale = self.calculate_scale_factor(w, h)
-            print(f"Window size: {w}x{h}, Scale factor: {total_scale:.2f}")
-
-            # 计算字体大小 - 移除所有上界限制
-            btn_size = int(self.base_font_sizes['btn'] * total_scale)
-            title_size = int(self.base_font_sizes['title'] * total_scale)
-            ylabel_size = int(self.base_font_sizes['ylabel'] * total_scale)
-            notes_size = int(self.base_font_sizes['notes'] * total_scale)
-            notes_btn_size = int(self.base_font_sizes['notes_btn'] * total_scale)
-            legend_size = int(self.base_font_sizes['legend'] * total_scale)
-            ticks_size = int(self.base_font_sizes['ticks'] * total_scale)
-            annot_size = int(self.base_font_sizes['annot'] * total_scale)
-
-            # 按钮
-            for b in (self.btn_import, self.btn_export, self.btn_subjects, self.btn_total, self.btn_rank):
-                b.setFont(QFont("Microsoft YaHei", btn_size))
-                b.setFixedHeight(int(26 * total_scale))
-                b.setFixedWidth(int(90 * total_scale))
-
-            # 备注
-            self.notes_label.setFont(QFont("Microsoft YaHei", title_size))
-            self.notes_text.setFont(QFont("Microsoft YaHei", notes_size))
-            self.btn_edit.setFont(QFont("Microsoft YaHei", notes_btn_size))
-            self.btn_save.setFont(QFont("Microsoft YaHei", notes_btn_size))
-            self.btn_edit.setFixedHeight(int(24 * total_scale))
-            self.btn_save.setFixedHeight(int(24 * total_scale))
-
-            # Matplotlib
-            if hasattr(self.ax, 'title'):
-                self.ax.title.set_fontsize(title_size)
-            if hasattr(self.ax, 'yaxis') and hasattr(self.ax.yaxis, 'label'):
-                self.ax.yaxis.label.set_fontsize(ylabel_size)
-            self.ax.tick_params(axis='both', which='major', labelsize=ticks_size)
-            if hasattr(self.ax, 'get_legend'):
-                legend = self.ax.get_legend()
-                if legend:
-                    for text in legend.get_texts():
-                        text.set_fontsize(legend_size)
-            # 保存注解字体大小
-            self.annot_fontsize = annot_size
-
-            self.canvas.draw()
-        except Exception as e:
-            print(f"Resize error: {e}")
-        super().resizeEvent(event)
 
     def auto_load_csv(self):
         default_path = "data.csv"
         if os.path.exists(default_path):
             try:
                 self.df = pd.read_csv(default_path, parse_dates=["exam"])
-                self.plot_subjects()
-            except Exception as e:
-                QMessageBox.information(self, "提示", f"读取 data.csv 失败，请手动导入。\n错误：{e}")
-        else:
-            QMessageBox.information(self, "提示", "没有搜寻到成绩信息，请手动导入。")
+            except Exception:
+                try:
+                    self.df = pd.read_csv(default_path)
+                except Exception:
+                    QMessageBox.warning(self, "提示", "自动加载 data.csv 时出错。")
+                    return
+            # plot subjects by default
+            self.plot_subjects()
 
     def load_csv(self):
-        path, _ = QFileDialog.getOpenFileName(self, "打开 CSV", filter="CSV 文件 (*.csv)")
+        path, _ = QFileDialog.getOpenFileName(self, "打开 CSV", filter="CSV 文件 (*.csv);;All Files (*)")
         if not path:
             return
         try:
             self.df = pd.read_csv(path, parse_dates=["exam"])
-            QMessageBox.information(self, "提示", f"导入成功：共{len(self.df)}条记录")
-            self.plot_subjects()
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"无法导入：{e}")
+        except Exception:
+            # 如果 parse_dates 失败，再读一次不解析
+            self.df = pd.read_csv(path)
+        QMessageBox.information(self, "提示", f"导入成功：共 {len(self.df)} 条记录")
+        self.plot_subjects()
 
     def save_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "保存 CSV", filter="CSV 文件 (*.csv)")
+        if self.df is None or self.df.empty:
+            QMessageBox.information(self, "提示", "当前没有数据可导出。")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "保存 CSV", filter="CSV 文件 (*.csv);;All Files (*)")
         if not path:
             return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
         try:
-            if not path.lower().endswith('.csv'):
-                path += '.csv'
             self.df.to_csv(path, index=False, date_format="%Y-%m-%d")
             QMessageBox.information(self, "提示", "导出成功")
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"无法导出：{e}")
+            QMessageBox.critical(self, "错误", f"保存失败：{e}")
 
     def prepare_data(self):
-        score_pivot = (self.df
-                       .pivot(index="exam", columns="subject", values="score")
-                       .sort_index())
-        total = score_pivot.sum(axis=1).rename('总分')
+        """返回 (score_pivot, total_series, rank_series, x_labels)
+        score_pivot: DataFrame indexed by exam (sorted) with subjects as columns
+        total_series: Series of total per exam (index aligned)
+        rank_series: Series of rank per exam (if available)
+        x_labels: list of strings for x-axis (aligned with pivot index)
+        """
+        if self.df is None or self.df.empty:
+            return pd.DataFrame(), pd.Series(dtype=float), pd.Series(dtype=float), []
+
+        df = self.df.copy()
+        # try to parse exam column to datetime if not already
+        if 'exam' in df.columns and not np.issubdtype(df['exam'].dtype, np.datetime64):
+            try:
+                df['exam'] = pd.to_datetime(df['exam'])
+            except Exception:
+                # leave as-is (string)
+                pass
+
+        # pivot: rows = exam, cols = subject
         try:
-            rank = self.df.groupby("exam")["total_rank"].first().sort_index()
+            score_pivot = df.pivot_table(index='exam', columns='subject', values='score', aggfunc='first').sort_index()
         except Exception:
-            rank = pd.Series(index=score_pivot.index, data=[0]*len(score_pivot), name='rank')
-        return score_pivot, total, rank
+            score_pivot = pd.DataFrame()
 
-    def clear_axes(self):
-        self.ax.clear()
-        for spine in self.ax.spines.values():
-            spine.set_linewidth(2)
+        # total per exam
+        total = None
+        if not score_pivot.empty:
+            try:
+                total = score_pivot.sum(axis=1)
+            except Exception:
+                total = pd.Series(dtype=float)
 
-    def format_axis(self, dates):
-        """设置等间距的x轴"""
-        if len(dates) == 0:
-            return
-        
-        # 创建等间距索引 (0,1,2,...)
-        x_ticks = np.arange(len(dates))
-        
-        # 设置等间距的刻度位置
-        self.ax.set_xticks(x_ticks)
-        
-        # 设置日期格式的标签
-        date_labels = [date.strftime('%Y-%m') for date in dates]
-        self.ax.set_xticklabels(date_labels)
-        
-        # 设置x轴范围，使点之间有空间
-        if len(x_ticks) > 1:
-            self.ax.set_xlim(-0.5, len(x_ticks)-0.5)
-        
-        # 旋转标签并调整对齐方式
-        for lbl in self.ax.get_xticklabels():
-            lbl.set_rotation(45)
-            lbl.set_ha('right')
-        
-        self.ax.tick_params(axis='both', which='major', labelsize=self.annot_fontsize)
+        # rank series (from original df)
+        rank = pd.Series(dtype=float)
+        if 'total_rank' in df.columns:
+            try:
+                rank = df.groupby('exam')['total_rank'].first().sort_index()
+            except Exception:
+                rank = pd.Series(dtype=float)
+
+        # x labels: format exam dates to 'YYYY-MM' or string if not datetime
+        x_labels = []
+        if not score_pivot.empty:
+            for idx in score_pivot.index:
+                if isinstance(idx, (pd.Timestamp, datetime)):
+                    x_labels.append(idx.strftime("%Y-%m-%d"))  # show full date (YYYY-MM-DD)
+                else:
+                    x_labels.append(str(idx))
+
+        return score_pivot, total, rank, x_labels
 
     def plot_subjects(self):
-        self.clear_axes()
-        if self.df.empty:
-            QMessageBox.information(self, "提示", "当前没有数据，请先导入 CSV。")
+        score_pivot, total, rank, x_labels = self.prepare_data()
+        if score_pivot.empty:
+            QMessageBox.information(self, "提示", "没有可绘制的科目数据，请先导入 CSV。")
             return
-        score_pivot, total, rank = self.prepare_data()
-        dates = score_pivot.index
-        
-        # 创建等间距索引 (0,1,2,...)
-        x_ticks = np.arange(len(dates))
-        
-        for subj in score_pivot.columns:
-            y = score_pivot[subj]
-            # 使用等间距索引绘图
-            self.ax.plot(x_ticks, y, marker='o', label=subj, linewidth=2)
-            for i, (x_val, y_val) in enumerate(zip(x_ticks, y)):
-                try:
-                    self.ax.annotate(
-                        f"{y_val:.0f}",
-                        xy=(x_val, y_val),
-                        xytext=(-20, 20),
-                        textcoords='offset points',
-                        fontsize=self.annot_fontsize,
-                        ha='left',
-                        va='top'
-                    )
-                except Exception:
-                    pass
 
-        self.ax.set_title("各科分数趋势", fontsize=self.annot_fontsize)
-        self.ax.set_ylabel("分数", fontsize=self.annot_fontsize)
-        self.ax.legend(fontsize=self.annot_fontsize, loc='best', frameon=True, borderaxespad=1.5)
-        self.format_axis(dates)
-        self.canvas.draw()
+        # build series dict
+        series_dict = {}
+        for col in score_pivot.columns:
+            series_dict[col] = score_pivot[col].tolist()
+
+        self.chartview.plot_lines(x_labels, series_dict, title="各科分数趋势")
 
     def plot_total(self):
-        self.clear_axes()
-        if self.df.empty:
-            QMessageBox.information(self, "提示", "当前没有数据，请先导入 CSV。")
+        score_pivot, total, rank, x_labels = self.prepare_data()
+        if total is None or total.empty:
+            QMessageBox.information(self, "提示", "没有可绘制的总分数据。")
             return
-        score_pivot, total, rank = self.prepare_data()
-        dates = score_pivot.index
-        
-        # 创建等间距索引 (0,1,2,...)
-        x_ticks = np.arange(len(dates))
-        
-        # 使用等间距索引绘图
-        self.ax.plot(x_ticks, total.values, marker='s', linestyle='-', linewidth=2, label='总分')
-
-        for i, (x_val, y_val) in enumerate(zip(x_ticks, total.values)):
-            try:
-                self.ax.annotate(
-                    f"{y_val:.0f}",
-                    xy=(x_val, y_val),
-                    xytext=(-20, 20),
-                    textcoords='offset points',
-                    fontsize=self.annot_fontsize,
-                    ha='left',
-                    va='top'
-                )
-            except Exception:
-                pass
-
-        self.ax.set_title("总分趋势", fontsize=self.annot_fontsize)
-        self.ax.set_ylabel("总分", fontsize=self.annot_fontsize)
-        self.format_axis(dates)
-        self.canvas.draw()
+        series_dict = {'总分': total.tolist()}
+        self.chartview.plot_lines(x_labels, series_dict, title="总分趋势")
 
     def plot_rank(self):
-        self.clear_axes()
-        if self.df.empty:
-            QMessageBox.information(self, "提示", "当前没有数据，请先导入 CSV。")
+        score_pivot, total, rank, x_labels = self.prepare_data()
+        if rank is None or rank.empty:
+            QMessageBox.information(self, "提示", "没有可绘制的排名数据（total_rank 列缺失或为空）。")
             return
-        score_pivot, total, rank = self.prepare_data()
-        dates = score_pivot.index
-        
-        # 创建等间距索引 (0,1,2,...)
-        x_ticks = np.arange(len(dates))
-        
-        # 使用等间距索引绘图
-        self.ax.plot(x_ticks, rank.values, marker='^', linestyle='--', linewidth=2, label='排名')
-
-        for i, (x_val, y_val) in enumerate(zip(x_ticks, rank.values)):
-            try:
-                self.ax.annotate(
-                    f"{int(y_val)}",
-                    xy=(x_val, y_val),
-                    xytext=(-20, 20),
-                    textcoords='offset points',
-                    fontsize=self.annot_fontsize,
-                    ha='left',
-                    va='top'
-                )
-            except Exception:
-                pass
-
-        self.ax.invert_yaxis()
-        self.ax.set_title("排名趋势", fontsize=self.annot_fontsize)
-        self.ax.set_ylabel("排名", fontsize=self.annot_fontsize)
-        self.format_axis(dates)
-        self.canvas.draw()
+        series_dict = {'排名': rank.tolist()}
+        self.chartview.plot_lines(x_labels, series_dict, title="排名趋势")
 
     def edit_notes(self):
         if not self.notes_editing:
@@ -402,8 +381,12 @@ class ScoreVisualizer(QMainWindow):
             QMessageBox.critical(self, "错误", f"保存备注失败：{e}")
 
 
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
     win = ScoreVisualizer()
     win.showMaximized()
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
